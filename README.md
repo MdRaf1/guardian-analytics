@@ -10,8 +10,8 @@ Serverless: an Agent Builder persona, an ES|QL tool, lexical BM25 retrieval, one
 Elastic Workflow as the write path, and Kibana/Lens dashboards over an audit index.
 That repository is 171 lines of configuration and contains no application source
 code at all, which was the point of it — the whole agent is declared, not
-programmed. It was never run against real traffic and its audit trail was never
-exercised beyond demonstration.
+programmed. It was never run against real traffic, and its audit write path was
+declared but never exercised.
 
 Building it left me with a specific, nagging question, and this repository is my
 attempt to answer it properly.
