@@ -1,0 +1,62 @@
+name: smoke
+
+# Runs on every push to master. Render deploys on push independently (its own
+# GitHub integration, configured in the Render dashboard); this job is the code+DB
+# gate: it starts the service against the real Neon database and asserts every
+# endpoint returns its expected row counts before the change is trusted.
+#
+# The DB is hit read-only, so pointing CI at the live Neon database is safe — it
+# only wakes the scale-to-zero compute briefly. The pooled, verify-full connection
+# string is a GitHub Actions secret (DATABASE_URL), never committed.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+
+      - run: npm ci
+
+      - name: Start service
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Raise the pool's query ceiling above smoke.mjs's warm-up timeout (170s) so
+          # a cold, minimum-CU Neon compute can finish the heavy warm-up query instead
+          # of being killed mid-flight. Production keeps the lower default.
+          PG_STATEMENT_TIMEOUT_MS: '180000'
+        run: |
+          node server.mjs &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for liveness
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health >/dev/null; then
+              echo "up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not become healthy"; exit 1
+
+      - name: Smoke test
+        # smoke.mjs warms the DB via /ready before the timed query checks, so a cold
+        # Neon compute (query 05 ~70s cold) does not false-fail the gate.
+        run: BASE_URL=http://localhost:3000 node smoke.mjs
+
+      - name: Stop service
+        if: always()
+        run: kill "$SERVER_PID" 2>/dev/null || true

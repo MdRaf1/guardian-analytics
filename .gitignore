@@ -6,3 +6,10 @@
 scratch/
 *.out
 *.log
+
+# Secrets: connection strings live here locally, never committed.
+.env
+service/.env
+
+# Node
+node_modules/

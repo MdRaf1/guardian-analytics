@@ -1,0 +1,21 @@
+{
+  "name": "guardian-analytics-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only HTTP service over the guardian-analytics audit model, plus a one-off loader.",
+  "scripts": {
+    "start": "node server.mjs",
+    "load": "node load.mjs",
+    "verify": "node verify.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0",
+    "pg": "^8.13.1",
+    "pg-copy-streams": "^6.0.6",
+    "prom-client": "^15.1.3"
+  }
+}
