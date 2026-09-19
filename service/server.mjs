@@ -21,6 +21,7 @@ import Fastify from 'fastify';
 import { getPool } from './db.mjs';
 import { buildRegistry } from './queries.mjs';
 import { registry, httpRequests, httpDuration } from './metrics.mjs';
+import { buildLoggerOptions, betterStackConfigured } from './logging.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Local dev reads service/.env; in production (Render) the env vars are already set.
@@ -34,7 +35,7 @@ const app = Fastify({
   // We emit our own single line per request in onResponse; Fastify's default
   // req/res pair would double it.
   disableRequestLogging: true,
-  logger: { level: process.env.LOG_LEVEL ?? 'info' },
+  logger: buildLoggerOptions(),
 });
 
 // One structured line per request. rows is attached by the route handler when it
@@ -46,7 +47,6 @@ app.addHook('onResponse', async (req, reply) => {
   httpRequests.inc({ route, status });
   httpDuration.observe({ route, status }, reply.elapsedTime / 1000);
   req.log.info({
-    reqId: req.id,
     endpoint: req.url,
     route,
     status,
@@ -129,6 +129,9 @@ app.get('/metrics', async (req, reply) => {
 const port = Number(process.env.PORT ?? 3000);
 app
   .listen({ port, host: '0.0.0.0' })
+  .then(() => {
+    app.log.info({ betterStack: betterStackConfigured() }, 'service started');
+  })
   .catch((err) => {
     app.log.error(err);
     process.exit(1);
