@@ -60,9 +60,13 @@ same window function again. Elasticsearch has aggregations that reach at some of
 this, and it has ES|QL, but a normalised model plus 40 lines of SQL is a better tool
 for the job and it is worth being honest about which tool fits which question.
 
-**This is a study repository.** It is not deployed, not wired into The Data Guardian
-or anything else, and nothing runs on a schedule. It is a schema, a generator, and
-six queries you can run in about two minutes.
+**This began as a study repository** — a schema, a generator, and six queries you can
+run in about two minutes, not wired into The Data Guardian or anything else. It has
+since been deployed and operated as a small production-style service on free tiers —
+a public read-only API over the model, with monitoring, alerting, scheduled
+data-quality checks, and a worked incident post-mortem. That layer is described under
+[Operations](#operations); the load driving it is entirely synthetic (see the note on
+the data below), and nothing here serves real users.
 
 It is also my first SQL project — none of my earlier work involved a relational
 database, so the design decisions below are reasoned from first principles and
@@ -307,6 +311,44 @@ and the `(run, document, policy)` grain is unique — four assertions enforce al
 that before a single CSV is written, because incoherent data produces query results
 that look plausible and are meaningless.
 
+## Operations
+
+The analytical core above is also deployed as a small, operated service — built on
+free tiers, driven by **synthetic load only** (a scheduled generator and manual
+tests; no real users, no organic traffic).
+
+- **Live API:** https://guardian-analytics.onrender.com — the six queries as
+  read-only endpoints (`/queries/…`), plus `/health` (no-DB liveness), `/ready`
+  (DB connectivity + row counts), and `/metrics` (Prometheus stub).
+- **Status page:** https://guardian-analytics.betteruptime.com
+
+How it runs:
+
+- **Database** — Neon (managed Postgres, free tier). Schema, indexes, and the
+  201,619-row deterministic seed loaded via `service/load.mjs`.
+- **Service** — Fastify on Render, auto-deploying on push to `master`. Structured
+  JSON logs (pino) ship to Better Stack.
+- **CI gate** — `smoke` workflow asserts all six query counts against the live DB on
+  every push before the change is trusted.
+- **Monitoring** — Better Stack uptime monitor pings `/health` (no-DB, so it keeps
+  the service warm without waking the database); email alerts; public status page.
+- **Synthetic traffic** — a bounded cron (`traffic` workflow, 4×/day) generates
+  genuine latency/throughput telemetry while staying well inside the free compute
+  budget.
+- **Data-quality gate** — a daily job (`quality` workflow) validates the live DB
+  against the deterministic baseline with 26 exact checks (counts, distribution, FK
+  integrity, constraints, grain, semantic invariants, query-count regression) and
+  alerts via a Better Stack heartbeat on any drift.
+
+Two operations write-ups, both with real numbers and honestly synthetic-labelled:
+
+- **[docs/data-quality-alert-drill.md](docs/data-quality-alert-drill.md)** — proving
+  the data-quality gate *alerts*, not just detects: a simulated one-row anomaly drove
+  a diagnostic failure, a fired incident + email, and auto-recovery.
+- **[docs/incident-index-drop.md](docs/incident-index-drop.md)** — an induced incident:
+  dropping a measured index, watching query 01 regress (external-merge disk spill),
+  diagnosing it from `EXPLAIN (ANALYZE, BUFFERS)`, and restoring.
+
 ## Repository
 
 ```
@@ -315,6 +357,9 @@ seed.mjs                deterministic generator, no dependencies
 indexes.sql             2 indexes kept, 3 rejected, all with measurements
 queries/                6 analytical queries, each with its business question
 docs/query-plans.md     real EXPLAIN output, before and after
+service/                read-only HTTP API, loader, verify/smoke/quality/traffic scripts
+.github/workflows/      CI smoke gate, synthetic-traffic cron, daily data-quality gate
+docs/                   query plans + two operations write-ups (see Operations)
 ```
 
 Solo work — the reasoning in the comments is mine, unreviewed, and the measurements
