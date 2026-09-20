@@ -1,0 +1,40 @@
+name: quality
+
+# Data-quality / regression gate (P5). Runs quality.mjs against the live database
+# on a daily schedule, validating it against the deterministic seed baseline (row
+# counts, distribution, the six query counts, FK integrity, check constraints,
+# grain uniqueness, semantic invariants). On all-pass it pings a Better Stack
+# heartbeat; on any failure it exits non-zero (GH Actions marks the run failed) and
+# does NOT ping, so the heartbeat goes silent and Better Stack alerts.
+#
+# The data is synthetic and read-only, so daily is ample — a failure means something
+# changed the DB (migration, stray write, dropped constraint, platform issue).
+#
+# SCHEDULE — the single knob:
+#   0 3 * * *  = once daily at 03:00 UTC. One Neon wake/day (~0.1 CU-hr) => ~3
+#               CU-hr/month, on top of P4's ~12 — well under the 100 CU-hr free budget.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+      - run: npm ci
+      - name: Run data-quality gate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTERSTACK_HEARTBEAT_URL: ${{ secrets.BETTERSTACK_HEARTBEAT_URL }}
+        run: node quality.mjs
