@@ -1,0 +1,46 @@
+name: traffic
+
+# Synthetic-traffic campaign (P4). Drives the six query endpoints on a schedule so
+# the service produces genuine latency/throughput telemetry in Better Stack.
+#
+# ALL LOAD IS SYNTHETIC — it originates from this cron, never from real users.
+#
+# CADENCE — the single knob. Dial down/up by editing this one cron line.
+#   0 */6 * * *  = 4 runs/day (every 6 hours), each a fat batch (5 passes x 6
+#                  endpoints + a warm-up = ~31 requests, ~2 min active compute).
+#
+# CU-hr budget (Neon free = 100 CU-hr/project/month; scale-to-zero after 5 min idle):
+#   Cost is dominated by the ~5-min idle TAIL paid on every wake, NOT the request
+#   count — so a fat batch is nearly free relative to the wake itself.
+#     per wake  ~= 2 min active (~1 CU avg) + 5 min tail (~0.25 CU)
+#               ~= 0.033 + 0.021 = ~0.054 CU-hr; round up hard to 0.1 CU-hr.
+#     4 wakes/day x 30 days x 0.1 = ~12 CU-hr/month  (worst-case doubled: ~24).
+#   Leaves >50 CU-hr/month headroom for the P5 data-quality job. The /health uptime
+#   monitor is no-DB, so it costs 0 CU-hr.
+#
+# Note: GitHub Actions cron is best-effort and may start a few minutes late; that is
+# fine here — this is telemetry generation, not a deadline.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  traffic:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # traffic.mjs uses only native fetch — no dependencies, so no npm ci needed.
+      - name: Generate synthetic traffic
+        env:
+          # Public Render URL, stored as a repo variable (not a secret — not
+          # sensitive) so it lives in one place and cannot drift out of sync here.
+          BASE_URL: ${{ vars.SERVICE_BASE_URL }}
+        run: node traffic.mjs
