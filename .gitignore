@@ -13,3 +13,7 @@ service/.env
 
 # Node
 node_modules/
+
+
+## Tools
+.serena/
