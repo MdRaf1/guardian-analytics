@@ -1,5 +1,7 @@
 // Read-only HTTP service over the guardian-analytics audit model.
 //
+//   GET /                service index: what this is and which routes exist.
+//                        No database, so it answers even if Postgres is down.
 //   GET /queries/:slug   one per analytical query in queries/. Two take bounded,
 //                        validated params (repeat-offenders?limit, flagged-never-
 //                        actioned?days); the rest are parameterless.
@@ -53,6 +55,31 @@ app.addHook('onResponse', async (req, reply) => {
     latency_ms: latencyMs,
     rows: reply.rowCount,
   });
+});
+
+// --- service index ----------------------------------------------------------
+
+// GET / is the URL that ends up pasted into a CV or a portfolio link, so it
+// answers with an index of the service rather than a 404. Deliberately NO
+// database: this route has to stay up and fast even when Postgres is
+// unreachable, which is what makes it safe as the public front door. /ready is
+// the endpoint that proves the database.
+app.get('/', async () => {
+  return {
+    service: 'guardian-analytics',
+    description:
+      'Read-only analytics API over a five-table PostgreSQL compliance-audit model. ' +
+      'All load is synthetic.',
+    endpoints: {
+      // Derived from the same `queries` object the /queries/:slug loop iterates,
+      // so this index cannot drift out of sync with the routes registered below.
+      queries: Object.keys(queries).map((slug) => `/queries/${slug}`),
+      health: '/health',
+      ready: '/ready',
+      metrics: '/metrics',
+    },
+    repo: 'https://github.com/MdRaf1/guardian-analytics',
+  };
 });
 
 // --- query routes -----------------------------------------------------------
